@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from app.api.files import router as files_router
 from app.config import APP_DESCRIPTION, APP_NAME, APP_VERSION, STORAGE_DIR
 
 
@@ -12,6 +13,8 @@ def create_application() -> FastAPI:
         version=APP_VERSION,
         description=APP_DESCRIPTION,
     )
+
+    application.include_router(files_router)
 
     @application.get("/", include_in_schema=False)
     async def root() -> dict[str, str]:
