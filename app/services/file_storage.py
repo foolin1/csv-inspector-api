@@ -6,6 +6,7 @@ from fastapi import UploadFile
 from pydantic import BaseModel
 
 from app.config import FILE_READ_CHUNK_SIZE
+from app.services.csv_reader import CsvReaderService
 
 
 class UnsupportedFileTypeError(ValueError):
@@ -22,12 +23,22 @@ class StoredFileMetadata(BaseModel):
     stored_file_name: str
     size_bytes: int
     uploaded_at: datetime
+    encoding: str
+    delimiter: str
+    row_count: int
+    column_count: int
 
 
 class FileStorageService:
-    def __init__(self, storage_dir: Path, max_file_size_bytes: int) -> None:
+    def __init__(
+        self,
+        storage_dir: Path,
+        max_file_size_bytes: int,
+        csv_reader_service: CsvReaderService | None = None,
+    ) -> None:
         self.storage_dir = storage_dir
         self.max_file_size_bytes = max_file_size_bytes
+        self.csv_reader_service = csv_reader_service or CsvReaderService()
         self.storage_dir.mkdir(parents=True, exist_ok=True)
 
     async def save(self, uploaded_file: UploadFile) -> StoredFileMetadata:
@@ -52,13 +63,20 @@ class FileStorageService:
 
                     target_file.write(chunk)
 
+            csv_info = self.csv_reader_service.inspect(stored_file_path)
+
             metadata = StoredFileMetadata(
                 file_id=file_id,
                 file_name=original_file_name,
                 stored_file_name=stored_file_name,
                 size_bytes=size_bytes,
                 uploaded_at=datetime.now(UTC),
+                encoding=csv_info.encoding,
+                delimiter=csv_info.delimiter,
+                row_count=csv_info.row_count,
+                column_count=csv_info.column_count,
             )
+
             metadata_path.write_text(
                 metadata.model_dump_json(indent=2),
                 encoding="utf-8",

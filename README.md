@@ -1,10 +1,10 @@
 # CSV Inspector API
 
-A FastAPI service for uploading and analyzing CSV files.
+A FastAPI service for uploading, validating, and analyzing CSV files.
 
 ## Current stage
 
-The API supports CSV file uploads, file extension validation, file size validation, local storage, metadata storage, automated tests, and code quality checks.
+The API supports CSV upload, local storage, encoding detection, delimiter detection, structural validation, metadata storage, automated tests, and code quality checks.
 
 ## Implemented features
 
@@ -15,18 +15,26 @@ The API supports CSV file uploads, file extension validation, file size validati
 - Unique file identifiers
 - Local file storage
 - JSON metadata storage
-- Automated API tests
+- UTF-8 encoding detection
+- Windows-1251 encoding detection
+- Comma delimiter detection
+- Semicolon delimiter detection
+- Empty CSV validation
+- Invalid row structure validation
+- Binary content validation
+- Row and column counting
+- Automated API and service tests
 - Ruff linting and formatting
 
 ## Planned features
 
-- UTF-8 and Windows-1251 encoding support
-- Comma and semicolon delimiter detection
 - File information endpoint
 - Column profiling
-- Missing and unique value statistics
+- Missing value statistics
+- Unique value statistics
 - Numeric column statistics
 - Data preview
+- Detailed statistics for one column
 - Uploaded file deletion
 - Unified error responses
 - GitHub Actions
@@ -80,6 +88,16 @@ POST /api/files
 
 The request must contain a CSV file in the `file` form field.
 
+Supported encodings:
+
+- UTF-8
+- Windows-1251
+
+Supported delimiters:
+
+- comma
+- semicolon
+
 Example response:
 
 ```json
@@ -87,11 +105,17 @@ Example response:
   "fileId": "7cb88f0f-7a39-4a6c-a6e7-b2b50b8a761f",
   "fileName": "sales.csv",
   "sizeBytes": 87,
-  "uploadedAt": "2026-07-10T10:30:00Z"
+  "uploadedAt": "2026-07-10T10:30:00Z",
+  "encoding": "UTF-8",
+  "delimiter": ",",
+  "rowCount": 3,
+  "columnCount": 3
 }
 ```
 
 Uploaded files and metadata are stored in the local `storage` directory.
+
+Invalid files are removed automatically.
 
 ## Run tests
 
@@ -116,12 +140,14 @@ csv-inspector-api/
 │   ├── models/
 │   │   └── responses.py
 │   ├── services/
+│   │   ├── csv_reader.py
 │   │   └── file_storage.py
 │   ├── config.py
 │   └── main.py
 ├── tests/
 │   ├── samples/
 │   │   └── sales.csv
+│   ├── test_csv_reader.py
 │   ├── test_files_api.py
 │   └── test_health.py
 ├── storage/

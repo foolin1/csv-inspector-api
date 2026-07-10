@@ -4,6 +4,12 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 from app.config import MAX_FILE_SIZE_BYTES, STORAGE_DIR
 from app.models.responses import FileUploadResponse
+from app.services.csv_reader import (
+    EmptyCsvError,
+    InvalidCsvError,
+    UnsupportedDelimiterError,
+    UnsupportedEncodingError,
+)
 from app.services.file_storage import (
     FileStorageService,
     FileTooLargeError,
@@ -47,10 +53,24 @@ async def upload_file(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=str(exc),
         ) from exc
+    except (UnsupportedEncodingError, UnsupportedDelimiterError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=str(exc),
+        ) from exc
+    except (EmptyCsvError, InvalidCsvError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
 
     return FileUploadResponse(
         file_id=metadata.file_id,
         file_name=metadata.file_name,
         size_bytes=metadata.size_bytes,
         uploaded_at=metadata.uploaded_at,
+        encoding=metadata.encoding,
+        delimiter=metadata.delimiter,
+        row_count=metadata.row_count,
+        column_count=metadata.column_count,
     )

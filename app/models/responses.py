@@ -17,3 +17,7 @@ class FileUploadResponse(ApiResponseModel):
     file_name: str
     size_bytes: int
     uploaded_at: datetime
+    encoding: str
+    delimiter: str
+    row_count: int
+    column_count: int

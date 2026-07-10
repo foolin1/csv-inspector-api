@@ -28,6 +28,7 @@ def client_factory(tmp_path: Path) -> Iterator[ClientFactory]:
             storage_dir=tmp_path,
             max_file_size_bytes=max_file_size_bytes,
         )
+
         app.dependency_overrides[get_file_storage_service] = lambda: storage_service
 
         client = TestClient(app)
@@ -68,9 +69,38 @@ def test_upload_csv_saves_file_and_returns_metadata(
     assert response_body["fileName"] == "sales.csv"
     assert response_body["sizeBytes"] == len(content)
     assert response_body["uploadedAt"]
+    assert response_body["encoding"] == "UTF-8"
+    assert response_body["delimiter"] == ","
+    assert response_body["rowCount"] == 3
+    assert response_body["columnCount"] == 3
 
     assert (tmp_path / f"{file_id}.csv").read_bytes() == content
     assert (tmp_path / f"{file_id}.json").exists()
+
+
+def test_upload_accepts_windows_1251_with_semicolon(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    content = ("product;city\nКофе;Минск\nЧай;Брест\n").encode("cp1251")
+
+    response = client.post(
+        "/api/files",
+        files={
+            "file": (
+                "products.csv",
+                content,
+                "text/csv",
+            )
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["encoding"] == "Windows-1251"
+    assert response.json()["delimiter"] == ";"
+    assert response.json()["rowCount"] == 2
+    assert response.json()["columnCount"] == 2
 
 
 def test_upload_rejects_file_with_wrong_extension(
@@ -114,4 +144,72 @@ def test_upload_rejects_file_larger_than_limit(
 
     assert response.status_code == 413
     assert response.json() == {"detail": "The uploaded file exceeds the maximum allowed size."}
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_upload_rejects_empty_csv(
+    client_factory: ClientFactory,
+    tmp_path: Path,
+) -> None:
+    client = client_factory()
+
+    response = client.post(
+        "/api/files",
+        files={
+            "file": (
+                "empty.csv",
+                b"",
+                "text/csv",
+            )
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": "The CSV file is empty."}
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_upload_rejects_unsupported_delimiter(
+    client_factory: ClientFactory,
+    tmp_path: Path,
+) -> None:
+    client = client_factory()
+    content = b"product\tamount\nCoffee\t10\n"
+
+    response = client.post(
+        "/api/files",
+        files={
+            "file": (
+                "tab-separated.csv",
+                content,
+                "text/csv",
+            )
+        },
+    )
+
+    assert response.status_code == 415
+    assert response.json() == {"detail": "The CSV file must use a comma or semicolon delimiter."}
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_upload_rejects_csv_with_inconsistent_rows(
+    client_factory: ClientFactory,
+    tmp_path: Path,
+) -> None:
+    client = client_factory()
+    content = b"product,amount\nCoffee,10,extra\n"
+
+    response = client.post(
+        "/api/files",
+        files={
+            "file": (
+                "broken.csv",
+                content,
+                "text/csv",
+            )
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {"detail": ("All CSV rows must contain the same number of columns.")}
     assert list(tmp_path.iterdir()) == []

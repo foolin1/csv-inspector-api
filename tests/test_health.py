@@ -11,7 +11,7 @@ def test_root_returns_application_information() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "name": "CSV Inspector API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "docs": "/docs",
     }
 
