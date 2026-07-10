@@ -21,7 +21,9 @@ class ClientFactory(Protocol):
 
 
 @pytest.fixture
-def client_factory(tmp_path: Path) -> Iterator[ClientFactory]:
+def client_factory(
+    tmp_path: Path,
+) -> Iterator[ClientFactory]:
     clients: list[TestClient] = []
 
     def create_client(
@@ -36,6 +38,7 @@ def client_factory(tmp_path: Path) -> Iterator[ClientFactory]:
 
         client = TestClient(app)
         clients.append(client)
+
         return client
 
     yield create_client
@@ -63,6 +66,7 @@ def upload_csv(
     )
 
     assert response.status_code == 201
+
     return response.json()
 
 
@@ -73,7 +77,11 @@ def test_upload_csv_saves_file_and_returns_metadata(
     client = client_factory()
     content = (SAMPLES_DIR / "sales.csv").read_bytes()
 
-    response_body = upload_csv(client, content)
+    response_body = upload_csv(
+        client,
+        content,
+    )
+
     file_id = response_body["fileId"]
 
     assert response_body["fileName"] == "sales.csv"
@@ -85,6 +93,7 @@ def test_upload_csv_saves_file_and_returns_metadata(
     assert response_body["columnCount"] == 3
 
     assert (tmp_path / f"{file_id}.csv").read_bytes() == content
+
     assert (tmp_path / f"{file_id}.json").exists()
 
 
@@ -125,7 +134,9 @@ def test_upload_rejects_file_with_wrong_extension(
     )
 
     assert response.status_code == 415
-    assert response.json() == {"detail": "Only files with the .csv extension are supported."}
+
+    assert response.json() == {"detail": ("Only files with the .csv extension are supported.")}
+
     assert list(tmp_path.iterdir()) == []
 
 
@@ -133,7 +144,9 @@ def test_upload_rejects_file_larger_than_limit(
     client_factory: ClientFactory,
     tmp_path: Path,
 ) -> None:
-    client = client_factory(max_file_size_bytes=10)
+    client = client_factory(
+        max_file_size_bytes=10,
+    )
 
     response = client.post(
         "/api/files",
@@ -147,7 +160,9 @@ def test_upload_rejects_file_larger_than_limit(
     )
 
     assert response.status_code == 413
+
     assert response.json() == {"detail": ("The uploaded file exceeds the maximum allowed size.")}
+
     assert list(tmp_path.iterdir()) == []
 
 
@@ -169,7 +184,9 @@ def test_upload_rejects_empty_csv(
     )
 
     assert response.status_code == 422
+
     assert response.json() == {"detail": "The CSV file is empty."}
+
     assert list(tmp_path.iterdir()) == []
 
 
@@ -191,7 +208,9 @@ def test_upload_rejects_unsupported_delimiter(
     )
 
     assert response.status_code == 415
+
     assert response.json() == {"detail": ("The CSV file must use a comma or semicolon delimiter.")}
+
     assert list(tmp_path.iterdir()) == []
 
 
@@ -213,7 +232,9 @@ def test_upload_rejects_csv_with_inconsistent_rows(
     )
 
     assert response.status_code == 422
+
     assert response.json() == {"detail": ("All CSV rows must contain the same number of columns.")}
+
     assert list(tmp_path.iterdir()) == []
 
 
@@ -241,6 +262,7 @@ def test_get_file_information_returns_404_for_unknown_file(
     response = client.get(f"/api/files/{uuid4()}")
 
     assert response.status_code == 404
+
     assert response.json() == {"detail": "The requested file was not found."}
 
 
@@ -256,7 +278,10 @@ def test_get_file_summary_returns_column_statistics(
         b"Coffee,,true,2026-07-03\n"
     )
 
-    uploaded = upload_csv(client, content)
+    uploaded = upload_csv(
+        client,
+        content,
+    )
 
     response = client.get(f"/api/files/{uploaded['fileId']}/summary")
 
@@ -296,4 +321,119 @@ def test_get_file_summary_returns_404_for_unknown_file(
     response = client.get(f"/api/files/{uuid4()}/summary")
 
     assert response.status_code == 404
+
     assert response.json() == {"detail": "The requested file was not found."}
+
+
+def test_get_file_preview_returns_requested_rows(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    content = b"product,amount\nCoffee,10\nTea,\nBread,5\n"
+
+    uploaded = upload_csv(
+        client,
+        content,
+    )
+
+    response = client.get(f"/api/files/{uploaded['fileId']}/preview?rows=2")
+
+    assert response.status_code == 200
+
+    assert response.json() == {
+        "fileId": uploaded["fileId"],
+        "fileName": "sales.csv",
+        "requestedRows": 2,
+        "returnedRows": 2,
+        "columns": [
+            "product",
+            "amount",
+        ],
+        "rows": [
+            {
+                "product": "Coffee",
+                "amount": "10",
+            },
+            {
+                "product": "Tea",
+                "amount": None,
+            },
+        ],
+    }
+
+
+def test_get_file_preview_rejects_invalid_row_count(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    uploaded = upload_csv(
+        client,
+        b"product,amount\nCoffee,10\n",
+    )
+
+    response = client.get(f"/api/files/{uploaded['fileId']}/preview?rows=0")
+
+    assert response.status_code == 422
+
+
+def test_get_file_preview_returns_404_for_unknown_file(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    response = client.get(f"/api/files/{uuid4()}/preview?rows=2")
+
+    assert response.status_code == 404
+
+    assert response.json() == {"detail": "The requested file was not found."}
+
+
+def test_get_column_details_returns_selected_column_statistics(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    content = b"product,total amount\nCoffee,10\nTea,20\nBread,\n"
+
+    uploaded = upload_csv(
+        client,
+        content,
+    )
+
+    response = client.get(f"/api/files/{uploaded['fileId']}/columns/total%20amount")
+
+    assert response.status_code == 200
+
+    assert response.json() == {
+        "fileId": uploaded["fileId"],
+        "fileName": "sales.csv",
+        "column": {
+            "name": "total amount",
+            "dataType": "number",
+            "missingValues": 1,
+            "uniqueValues": 2,
+            "minimum": 10.0,
+            "maximum": 20.0,
+            "average": 15.0,
+            "median": 15.0,
+        },
+    }
+
+
+def test_get_column_details_returns_404_for_unknown_column(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    uploaded = upload_csv(
+        client,
+        b"product,amount\nCoffee,10\n",
+    )
+
+    response = client.get(f"/api/files/{uploaded['fileId']}/columns/unknown")
+
+    assert response.status_code == 404
+
+    assert response.json() == {"detail": 'The column "unknown" was not found.'}

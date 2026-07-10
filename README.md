@@ -1,10 +1,10 @@
 # CSV Inspector API
 
-A FastAPI service for uploading, validating, and analyzing CSV files.
+A FastAPI service for uploading, validating, previewing, and analyzing CSV files.
 
 ## Current stage
 
-The API supports CSV upload, file validation, local storage, file information retrieval, column profiling, and numeric statistics.
+The API supports CSV upload, file validation, local storage, file information retrieval, column profiling, row preview, and detailed statistics for individual columns.
 
 ## Implemented features
 
@@ -12,9 +12,6 @@ The API supports CSV upload, file validation, local storage, file information re
 - CSV upload through multipart/form-data
 - `.csv` extension validation
 - Maximum file size validation
-- Unique file identifiers
-- Local CSV storage
-- JSON metadata storage
 - UTF-8 encoding detection
 - Windows-1251 encoding detection
 - Comma delimiter detection
@@ -22,6 +19,9 @@ The API supports CSV upload, file validation, local storage, file information re
 - Empty CSV validation
 - Invalid row structure validation
 - Binary content validation
+- Unique file identifiers
+- Local CSV storage
+- JSON metadata storage
 - Row and column counting
 - File information endpoint
 - Column type detection
@@ -31,12 +31,15 @@ The API supports CSV upload, file validation, local storage, file information re
 - Numeric maximum calculation
 - Numeric average calculation
 - Numeric median calculation
+- CSV row preview
+- Configurable preview row count
+- Detailed statistics for one column
 - Automated API and service tests
 - Ruff linting and formatting
 
 ## Supported column types
 
-The API currently detects the following column types:
+The API detects the following column types:
 
 - `number`
 - `boolean`
@@ -44,7 +47,7 @@ The API currently detects the following column types:
 - `text`
 - `empty`
 
-Boolean columns support the following values:
+Boolean columns support:
 
 - `true`
 - `false`
@@ -52,15 +55,6 @@ Boolean columns support the following values:
 - `no`
 
 The comparison is case-insensitive.
-
-## Planned features
-
-- Data preview
-- Configurable preview row count
-- Detailed statistics for one column
-- Uploaded file deletion
-- Unified error responses
-- GitHub Actions
 
 ## Requirements
 
@@ -89,13 +83,13 @@ python -m pip install -e ".[dev]"
 python -m uvicorn app.main:app --reload
 ```
 
-Open the Swagger documentation:
+Swagger documentation:
 
 ```text
 http://127.0.0.1:8000/docs
 ```
 
-Health-check endpoint:
+Health-check:
 
 ```text
 http://127.0.0.1:8000/health
@@ -111,61 +105,29 @@ POST /api/files
 
 The request must contain a CSV file in the `file` form field.
 
-Supported encodings:
-
-- UTF-8
-- Windows-1251
-
-Supported delimiters:
-
-- comma
-- semicolon
-
-Example response:
-
-```json
-{
-  "fileId": "7cb88f0f-7a39-4a6c-a6e7-b2b50b8a761f",
-  "fileName": "sales.csv",
-  "sizeBytes": 87,
-  "uploadedAt": "2026-07-10T10:30:00Z",
-  "encoding": "UTF-8",
-  "delimiter": ",",
-  "rowCount": 3,
-  "columnCount": 3
-}
-```
-
 ### Get file information
 
 ```text
 GET /api/files/{file_id}
 ```
 
-Returns metadata about a previously uploaded file.
+Returns metadata about an uploaded CSV file.
 
-Example response:
-
-```json
-{
-  "fileId": "7cb88f0f-7a39-4a6c-a6e7-b2b50b8a761f",
-  "fileName": "sales.csv",
-  "sizeBytes": 87,
-  "uploadedAt": "2026-07-10T10:30:00Z",
-  "encoding": "UTF-8",
-  "delimiter": ",",
-  "rowCount": 3,
-  "columnCount": 3
-}
-```
-
-### Get column summary
+### Get summary for all columns
 
 ```text
 GET /api/files/{file_id}/summary
 ```
 
-Returns statistics for all CSV columns.
+Returns data types, missing value counts, unique value counts, and numeric statistics.
+
+### Preview CSV rows
+
+```text
+GET /api/files/{file_id}/preview?rows=10
+```
+
+The `rows` parameter must be between 1 and 100.
 
 Example response:
 
@@ -173,36 +135,55 @@ Example response:
 {
   "fileId": "7cb88f0f-7a39-4a6c-a6e7-b2b50b8a761f",
   "fileName": "sales.csv",
-  "rowCount": 3,
-  "columnCount": 2,
-  "delimiter": ",",
-  "encoding": "UTF-8",
+  "requestedRows": 2,
+  "returnedRows": 2,
   "columns": [
+    "product",
+    "amount"
+  ],
+  "rows": [
     {
-      "name": "product",
-      "dataType": "text",
-      "missingValues": 0,
-      "uniqueValues": 2,
-      "minimum": null,
-      "maximum": null,
-      "average": null,
-      "median": null
+      "product": "Coffee",
+      "amount": "10"
     },
     {
-      "name": "amount",
-      "dataType": "number",
-      "missingValues": 1,
-      "uniqueValues": 2,
-      "minimum": 10.0,
-      "maximum": 20.0,
-      "average": 15.0,
-      "median": 15.0
+      "product": "Tea",
+      "amount": null
     }
   ]
 }
 ```
 
-Missing values are excluded from unique value counts and numeric calculations.
+### Get details for one column
+
+```text
+GET /api/files/{file_id}/columns/{column_name}
+```
+
+Example:
+
+```text
+GET /api/files/{file_id}/columns/amount
+```
+
+Example response:
+
+```json
+{
+  "fileId": "7cb88f0f-7a39-4a6c-a6e7-b2b50b8a761f",
+  "fileName": "sales.csv",
+  "column": {
+    "name": "amount",
+    "dataType": "number",
+    "missingValues": 1,
+    "uniqueValues": 2,
+    "minimum": 10.0,
+    "maximum": 20.0,
+    "average": 15.0,
+    "median": 15.0
+  }
+}
+```
 
 ## Run tests
 
@@ -216,6 +197,14 @@ python -m pytest
 ruff check .
 ruff format --check .
 ```
+
+## Planned features
+
+- Uploaded file deletion
+- Unified error response format
+- Additional automated tests
+- GitHub Actions
+- Final project documentation
 
 ## Project structure
 

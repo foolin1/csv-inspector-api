@@ -47,3 +47,18 @@ class FileSummaryResponse(ApiResponseModel):
     delimiter: str
     encoding: str
     columns: list[ColumnSummaryResponse]
+
+
+class FilePreviewResponse(ApiResponseModel):
+    file_id: UUID
+    file_name: str
+    requested_rows: int
+    returned_rows: int
+    columns: list[str]
+    rows: list[dict[str, str | None]]
+
+
+class ColumnDetailsResponse(ApiResponseModel):
+    file_id: UUID
+    file_name: str
+    column: ColumnSummaryResponse
