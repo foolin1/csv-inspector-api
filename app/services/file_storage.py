@@ -3,7 +3,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 from fastapi import UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from app.config import FILE_READ_CHUNK_SIZE
 from app.services.csv_reader import CsvReaderService
@@ -14,6 +14,14 @@ class UnsupportedFileTypeError(ValueError):
 
 
 class FileTooLargeError(ValueError):
+    pass
+
+
+class StoredFileNotFoundError(FileNotFoundError):
+    pass
+
+
+class StoredFileMetadataError(ValueError):
     pass
 
 
@@ -89,6 +97,26 @@ class FileStorageService:
             raise
         finally:
             await uploaded_file.close()
+
+    def get_metadata(self, file_id: UUID) -> StoredFileMetadata:
+        metadata_path = self.storage_dir / f"{file_id}.json"
+
+        if not metadata_path.exists():
+            raise StoredFileNotFoundError("The requested file was not found.")
+
+        try:
+            return StoredFileMetadata.model_validate_json(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, ValidationError, ValueError) as exc:
+            raise StoredFileMetadataError("The stored file metadata is invalid.") from exc
+
+    def get_file_path(self, file_id: UUID) -> Path:
+        metadata = self.get_metadata(file_id)
+        file_path = self.storage_dir / metadata.stored_file_name
+
+        if not file_path.exists():
+            raise StoredFileNotFoundError("The requested file was not found.")
+
+        return file_path
 
     @staticmethod
     def _validate_extension(file_name: str) -> None:

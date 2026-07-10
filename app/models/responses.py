@@ -9,6 +9,7 @@ class ApiResponseModel(BaseModel):
     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
+        from_attributes=True,
     )
 
 
@@ -21,3 +22,28 @@ class FileUploadResponse(ApiResponseModel):
     delimiter: str
     row_count: int
     column_count: int
+
+
+class FileInfoResponse(FileUploadResponse):
+    pass
+
+
+class ColumnSummaryResponse(ApiResponseModel):
+    name: str
+    data_type: str
+    missing_values: int
+    unique_values: int
+    minimum: float | None = None
+    maximum: float | None = None
+    average: float | None = None
+    median: float | None = None
+
+
+class FileSummaryResponse(ApiResponseModel):
+    file_id: UUID
+    file_name: str
+    row_count: int
+    column_count: int
+    delimiter: str
+    encoding: str
+    columns: list[ColumnSummaryResponse]

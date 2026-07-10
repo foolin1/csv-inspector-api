@@ -4,7 +4,7 @@ A FastAPI service for uploading, validating, and analyzing CSV files.
 
 ## Current stage
 
-The API supports CSV upload, local storage, encoding detection, delimiter detection, structural validation, metadata storage, automated tests, and code quality checks.
+The API supports CSV upload, file validation, local storage, file information retrieval, column profiling, and numeric statistics.
 
 ## Implemented features
 
@@ -13,7 +13,7 @@ The API supports CSV upload, local storage, encoding detection, delimiter detect
 - `.csv` extension validation
 - Maximum file size validation
 - Unique file identifiers
-- Local file storage
+- Local CSV storage
 - JSON metadata storage
 - UTF-8 encoding detection
 - Windows-1251 encoding detection
@@ -23,17 +23,40 @@ The API supports CSV upload, local storage, encoding detection, delimiter detect
 - Invalid row structure validation
 - Binary content validation
 - Row and column counting
+- File information endpoint
+- Column type detection
+- Missing value counting
+- Unique value counting
+- Numeric minimum calculation
+- Numeric maximum calculation
+- Numeric average calculation
+- Numeric median calculation
 - Automated API and service tests
 - Ruff linting and formatting
 
+## Supported column types
+
+The API currently detects the following column types:
+
+- `number`
+- `boolean`
+- `datetime`
+- `text`
+- `empty`
+
+Boolean columns support the following values:
+
+- `true`
+- `false`
+- `yes`
+- `no`
+
+The comparison is case-insensitive.
+
 ## Planned features
 
-- File information endpoint
-- Column profiling
-- Missing value statistics
-- Unique value statistics
-- Numeric column statistics
 - Data preview
+- Configurable preview row count
 - Detailed statistics for one column
 - Uploaded file deletion
 - Unified error responses
@@ -78,9 +101,9 @@ Health-check endpoint:
 http://127.0.0.1:8000/health
 ```
 
-## Upload a file
+## API endpoints
 
-Use the following endpoint:
+### Upload a CSV file
 
 ```text
 POST /api/files
@@ -113,9 +136,73 @@ Example response:
 }
 ```
 
-Uploaded files and metadata are stored in the local `storage` directory.
+### Get file information
 
-Invalid files are removed automatically.
+```text
+GET /api/files/{file_id}
+```
+
+Returns metadata about a previously uploaded file.
+
+Example response:
+
+```json
+{
+  "fileId": "7cb88f0f-7a39-4a6c-a6e7-b2b50b8a761f",
+  "fileName": "sales.csv",
+  "sizeBytes": 87,
+  "uploadedAt": "2026-07-10T10:30:00Z",
+  "encoding": "UTF-8",
+  "delimiter": ",",
+  "rowCount": 3,
+  "columnCount": 3
+}
+```
+
+### Get column summary
+
+```text
+GET /api/files/{file_id}/summary
+```
+
+Returns statistics for all CSV columns.
+
+Example response:
+
+```json
+{
+  "fileId": "7cb88f0f-7a39-4a6c-a6e7-b2b50b8a761f",
+  "fileName": "sales.csv",
+  "rowCount": 3,
+  "columnCount": 2,
+  "delimiter": ",",
+  "encoding": "UTF-8",
+  "columns": [
+    {
+      "name": "product",
+      "dataType": "text",
+      "missingValues": 0,
+      "uniqueValues": 2,
+      "minimum": null,
+      "maximum": null,
+      "average": null,
+      "median": null
+    },
+    {
+      "name": "amount",
+      "dataType": "number",
+      "missingValues": 1,
+      "uniqueValues": 2,
+      "minimum": 10.0,
+      "maximum": 20.0,
+      "average": 15.0,
+      "median": 15.0
+    }
+  ]
+}
+```
+
+Missing values are excluded from unique value counts and numeric calculations.
 
 ## Run tests
 
@@ -140,6 +227,7 @@ csv-inspector-api/
 │   ├── models/
 │   │   └── responses.py
 │   ├── services/
+│   │   ├── csv_analyzer.py
 │   │   ├── csv_reader.py
 │   │   └── file_storage.py
 │   ├── config.py
@@ -147,6 +235,7 @@ csv-inspector-api/
 ├── tests/
 │   ├── samples/
 │   │   └── sales.csv
+│   ├── test_csv_analyzer.py
 │   ├── test_csv_reader.py
 │   ├── test_files_api.py
 │   └── test_health.py

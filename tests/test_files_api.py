@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Protocol
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,7 +24,9 @@ class ClientFactory(Protocol):
 def client_factory(tmp_path: Path) -> Iterator[ClientFactory]:
     clients: list[TestClient] = []
 
-    def create_client(max_file_size_bytes: int = 1024) -> TestClient:
+    def create_client(
+        max_file_size_bytes: int = 1024,
+    ) -> TestClient:
         storage_service = FileStorageService(
             storage_dir=tmp_path,
             max_file_size_bytes=max_file_size_bytes,
@@ -43,18 +46,16 @@ def client_factory(tmp_path: Path) -> Iterator[ClientFactory]:
     app.dependency_overrides.clear()
 
 
-def test_upload_csv_saves_file_and_returns_metadata(
-    client_factory: ClientFactory,
-    tmp_path: Path,
-) -> None:
-    client = client_factory()
-    content = (SAMPLES_DIR / "sales.csv").read_bytes()
-
+def upload_csv(
+    client: TestClient,
+    content: bytes,
+    file_name: str = "sales.csv",
+) -> dict:
     response = client.post(
         "/api/files",
         files={
             "file": (
-                "sales.csv",
+                file_name,
                 content,
                 "text/csv",
             )
@@ -62,8 +63,17 @@ def test_upload_csv_saves_file_and_returns_metadata(
     )
 
     assert response.status_code == 201
+    return response.json()
 
-    response_body = response.json()
+
+def test_upload_csv_saves_file_and_returns_metadata(
+    client_factory: ClientFactory,
+    tmp_path: Path,
+) -> None:
+    client = client_factory()
+    content = (SAMPLES_DIR / "sales.csv").read_bytes()
+
+    response_body = upload_csv(client, content)
     file_id = response_body["fileId"]
 
     assert response_body["fileName"] == "sales.csv"
@@ -85,22 +95,16 @@ def test_upload_accepts_windows_1251_with_semicolon(
 
     content = ("product;city\nКофе;Минск\nЧай;Брест\n").encode("cp1251")
 
-    response = client.post(
-        "/api/files",
-        files={
-            "file": (
-                "products.csv",
-                content,
-                "text/csv",
-            )
-        },
+    response_body = upload_csv(
+        client,
+        content,
+        "products.csv",
     )
 
-    assert response.status_code == 201
-    assert response.json()["encoding"] == "Windows-1251"
-    assert response.json()["delimiter"] == ";"
-    assert response.json()["rowCount"] == 2
-    assert response.json()["columnCount"] == 2
+    assert response_body["encoding"] == "Windows-1251"
+    assert response_body["delimiter"] == ";"
+    assert response_body["rowCount"] == 2
+    assert response_body["columnCount"] == 2
 
 
 def test_upload_rejects_file_with_wrong_extension(
@@ -143,7 +147,7 @@ def test_upload_rejects_file_larger_than_limit(
     )
 
     assert response.status_code == 413
-    assert response.json() == {"detail": "The uploaded file exceeds the maximum allowed size."}
+    assert response.json() == {"detail": ("The uploaded file exceeds the maximum allowed size.")}
     assert list(tmp_path.iterdir()) == []
 
 
@@ -174,21 +178,20 @@ def test_upload_rejects_unsupported_delimiter(
     tmp_path: Path,
 ) -> None:
     client = client_factory()
-    content = b"product\tamount\nCoffee\t10\n"
 
     response = client.post(
         "/api/files",
         files={
             "file": (
                 "tab-separated.csv",
-                content,
+                b"product\tamount\nCoffee\t10\n",
                 "text/csv",
             )
         },
     )
 
     assert response.status_code == 415
-    assert response.json() == {"detail": "The CSV file must use a comma or semicolon delimiter."}
+    assert response.json() == {"detail": ("The CSV file must use a comma or semicolon delimiter.")}
     assert list(tmp_path.iterdir()) == []
 
 
@@ -197,14 +200,13 @@ def test_upload_rejects_csv_with_inconsistent_rows(
     tmp_path: Path,
 ) -> None:
     client = client_factory()
-    content = b"product,amount\nCoffee,10,extra\n"
 
     response = client.post(
         "/api/files",
         files={
             "file": (
                 "broken.csv",
-                content,
+                b"product,amount\nCoffee,10,extra\n",
                 "text/csv",
             )
         },
@@ -213,3 +215,85 @@ def test_upload_rejects_csv_with_inconsistent_rows(
     assert response.status_code == 422
     assert response.json() == {"detail": ("All CSV rows must contain the same number of columns.")}
     assert list(tmp_path.iterdir()) == []
+
+
+def test_get_file_information_returns_stored_metadata(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    uploaded = upload_csv(
+        client,
+        b"name,amount\nCoffee,10\nTea,20\n",
+    )
+
+    response = client.get(f"/api/files/{uploaded['fileId']}")
+
+    assert response.status_code == 200
+    assert response.json() == uploaded
+
+
+def test_get_file_information_returns_404_for_unknown_file(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    response = client.get(f"/api/files/{uuid4()}")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "The requested file was not found."}
+
+
+def test_get_file_summary_returns_column_statistics(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    content = (
+        b"product,amount,active,created_at\n"
+        b"Coffee,10,true,2026-07-01\n"
+        b"Tea,20,false,2026-07-02\n"
+        b"Coffee,,true,2026-07-03\n"
+    )
+
+    uploaded = upload_csv(client, content)
+
+    response = client.get(f"/api/files/{uploaded['fileId']}/summary")
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["fileId"] == uploaded["fileId"]
+    assert body["rowCount"] == 3
+    assert body["columnCount"] == 4
+
+    columns = {column["name"]: column for column in body["columns"]}
+
+    assert columns["product"]["dataType"] == "text"
+    assert columns["product"]["uniqueValues"] == 2
+
+    assert columns["amount"] == {
+        "name": "amount",
+        "dataType": "number",
+        "missingValues": 1,
+        "uniqueValues": 2,
+        "minimum": 10.0,
+        "maximum": 20.0,
+        "average": 15.0,
+        "median": 15.0,
+    }
+
+    assert columns["active"]["dataType"] == "boolean"
+    assert columns["created_at"]["dataType"] == "datetime"
+
+
+def test_get_file_summary_returns_404_for_unknown_file(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    response = client.get(f"/api/files/{uuid4()}/summary")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "The requested file was not found."}

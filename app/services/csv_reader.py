@@ -94,9 +94,7 @@ class CsvReaderService:
 
             return text, display_name
 
-        raise UnsupportedEncodingError(
-            "The CSV file must be encoded as UTF-8 or Windows-1251."
-        )
+        raise UnsupportedEncodingError("The CSV file must be encoded as UTF-8 or Windows-1251.")
 
     @staticmethod
     def _contains_binary_control_characters(text: str) -> bool:
@@ -152,9 +150,7 @@ class CsvReaderService:
             raise InvalidCsvError("The CSV file could not be parsed.") from exc
 
         if len(header) < 2:
-            raise UnsupportedDelimiterError(
-                "The CSV file must use a comma or semicolon delimiter."
-            )
+            raise UnsupportedDelimiterError("The CSV file must use a comma or semicolon delimiter.")
 
         if any(not column_name.strip() for column_name in header):
             raise InvalidCsvError("CSV column names must not be empty.")
@@ -167,8 +163,6 @@ class CsvReaderService:
                     continue
 
                 if len(row) != expected_column_count:
-                    raise InvalidCsvError(
-                        "All CSV rows must contain the same number of columns."
-                    )
+                    raise InvalidCsvError("All CSV rows must contain the same number of columns.")
         except csv.Error as exc:
             raise InvalidCsvError("The CSV file could not be parsed.") from exc
