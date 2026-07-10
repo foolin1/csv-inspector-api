@@ -1,6 +1,6 @@
 # CSV Inspector API
 
-[![Python CI](https://github.com/foolin1/csv-inspector-api/actions/workflows/python.yml/badge.svg)](https://github.com/foolin1/csv-inspector-api/actions/workflows/python.yml)
+[![Python CI](https://github.com/foolin1/csv-inspector-api/actions/workflows/python.yml/badge.svg?branch=main)](https://github.com/foolin1/csv-inspector-api/actions/workflows/python.yml)
 
 A REST API for uploading, validating, previewing, and analyzing CSV files.
 
