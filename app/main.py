@@ -1,12 +1,20 @@
 from fastapi import FastAPI
 
+from app.api.errors import register_exception_handlers
 from app.api.files import router as files_router
-from app.config import APP_DESCRIPTION, APP_NAME, APP_VERSION, STORAGE_DIR
+from app.config import (
+    APP_DESCRIPTION,
+    APP_NAME,
+    APP_VERSION,
+    STORAGE_DIR,
+)
 
 
 def create_application() -> FastAPI:
-    """Create and configure the FastAPI application."""
-    STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+    STORAGE_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     application = FastAPI(
         title=APP_NAME,
@@ -14,9 +22,13 @@ def create_application() -> FastAPI:
         description=APP_DESCRIPTION,
     )
 
+    register_exception_handlers(application)
     application.include_router(files_router)
 
-    @application.get("/", include_in_schema=False)
+    @application.get(
+        "/",
+        include_in_schema=False,
+    )
     async def root() -> dict[str, str]:
         return {
             "name": APP_NAME,

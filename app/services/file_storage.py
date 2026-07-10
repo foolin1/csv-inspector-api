@@ -25,6 +25,10 @@ class StoredFileMetadataError(ValueError):
     pass
 
 
+class StoredFileDeletionError(OSError):
+    pass
+
+
 class StoredFileMetadata(BaseModel):
     file_id: UUID
     file_name: str
@@ -47,10 +51,17 @@ class FileStorageService:
         self.storage_dir = storage_dir
         self.max_file_size_bytes = max_file_size_bytes
         self.csv_reader_service = csv_reader_service or CsvReaderService()
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        self.storage_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
 
-    async def save(self, uploaded_file: UploadFile) -> StoredFileMetadata:
+    async def save(
+        self,
+        uploaded_file: UploadFile,
+    ) -> StoredFileMetadata:
         original_file_name = Path(uploaded_file.filename or "").name
+
         self._validate_extension(original_file_name)
 
         file_id = uuid4()
@@ -98,7 +109,10 @@ class FileStorageService:
         finally:
             await uploaded_file.close()
 
-    def get_metadata(self, file_id: UUID) -> StoredFileMetadata:
+    def get_metadata(
+        self,
+        file_id: UUID,
+    ) -> StoredFileMetadata:
         metadata_path = self.storage_dir / f"{file_id}.json"
 
         if not metadata_path.exists():
@@ -106,10 +120,17 @@ class FileStorageService:
 
         try:
             return StoredFileMetadata.model_validate_json(metadata_path.read_text(encoding="utf-8"))
-        except (OSError, ValidationError, ValueError) as exc:
+        except (
+            OSError,
+            ValidationError,
+            ValueError,
+        ) as exc:
             raise StoredFileMetadataError("The stored file metadata is invalid.") from exc
 
-    def get_file_path(self, file_id: UUID) -> Path:
+    def get_file_path(
+        self,
+        file_id: UUID,
+    ) -> Path:
         metadata = self.get_metadata(file_id)
         file_path = self.storage_dir / metadata.stored_file_name
 
@@ -118,7 +139,27 @@ class FileStorageService:
 
         return file_path
 
+    def delete(
+        self,
+        file_id: UUID,
+    ) -> None:
+        metadata = self.get_metadata(file_id)
+
+        metadata_path = self.storage_dir / f"{file_id}.json"
+        file_path = self.storage_dir / metadata.stored_file_name
+
+        if not file_path.exists():
+            raise StoredFileNotFoundError("The requested file was not found.")
+
+        try:
+            file_path.unlink()
+            metadata_path.unlink()
+        except OSError as exc:
+            raise StoredFileDeletionError("The stored file could not be deleted.") from exc
+
     @staticmethod
-    def _validate_extension(file_name: str) -> None:
+    def _validate_extension(
+        file_name: str,
+    ) -> None:
         if Path(file_name).suffix.lower() != ".csv":
             raise UnsupportedFileTypeError("Only files with the .csv extension are supported.")

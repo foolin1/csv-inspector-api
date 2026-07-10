@@ -70,11 +70,29 @@ def upload_csv(
     return response.json()
 
 
+def assert_api_error(
+    response,
+    status_code: int,
+    code: str,
+    message: str,
+) -> None:
+    assert response.status_code == status_code
+
+    assert response.json() == {
+        "error": {
+            "code": code,
+            "message": message,
+            "details": None,
+        }
+    }
+
+
 def test_upload_csv_saves_file_and_returns_metadata(
     client_factory: ClientFactory,
     tmp_path: Path,
 ) -> None:
     client = client_factory()
+
     content = (SAMPLES_DIR / "sales.csv").read_bytes()
 
     response_body = upload_csv(
@@ -133,9 +151,12 @@ def test_upload_rejects_file_with_wrong_extension(
         },
     )
 
-    assert response.status_code == 415
-
-    assert response.json() == {"detail": ("Only files with the .csv extension are supported.")}
+    assert_api_error(
+        response=response,
+        status_code=415,
+        code="unsupported_file_type",
+        message=("Only files with the .csv extension are supported."),
+    )
 
     assert list(tmp_path.iterdir()) == []
 
@@ -159,9 +180,12 @@ def test_upload_rejects_file_larger_than_limit(
         },
     )
 
-    assert response.status_code == 413
-
-    assert response.json() == {"detail": ("The uploaded file exceeds the maximum allowed size.")}
+    assert_api_error(
+        response=response,
+        status_code=413,
+        code="file_too_large",
+        message=("The uploaded file exceeds the maximum allowed size."),
+    )
 
     assert list(tmp_path.iterdir()) == []
 
@@ -183,9 +207,12 @@ def test_upload_rejects_empty_csv(
         },
     )
 
-    assert response.status_code == 422
-
-    assert response.json() == {"detail": "The CSV file is empty."}
+    assert_api_error(
+        response=response,
+        status_code=422,
+        code="empty_csv",
+        message="The CSV file is empty.",
+    )
 
     assert list(tmp_path.iterdir()) == []
 
@@ -207,9 +234,12 @@ def test_upload_rejects_unsupported_delimiter(
         },
     )
 
-    assert response.status_code == 415
-
-    assert response.json() == {"detail": ("The CSV file must use a comma or semicolon delimiter.")}
+    assert_api_error(
+        response=response,
+        status_code=415,
+        code="unsupported_delimiter",
+        message=("The CSV file must use a comma or semicolon delimiter."),
+    )
 
     assert list(tmp_path.iterdir()) == []
 
@@ -231,11 +261,31 @@ def test_upload_rejects_csv_with_inconsistent_rows(
         },
     )
 
-    assert response.status_code == 422
-
-    assert response.json() == {"detail": ("All CSV rows must contain the same number of columns.")}
+    assert_api_error(
+        response=response,
+        status_code=422,
+        code="invalid_csv",
+        message=("All CSV rows must contain the same number of columns."),
+    )
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_upload_without_file_returns_validation_error(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    response = client.post("/api/files")
+
+    assert response.status_code == 422
+
+    body = response.json()
+
+    assert body["error"]["code"] == "validation_error"
+    assert body["error"]["message"] == "Request validation failed."
+    assert body["error"]["details"]
+    assert body["error"]["details"][0]["field"] == "body.file"
 
 
 def test_get_file_information_returns_stored_metadata(
@@ -261,9 +311,12 @@ def test_get_file_information_returns_404_for_unknown_file(
 
     response = client.get(f"/api/files/{uuid4()}")
 
-    assert response.status_code == 404
-
-    assert response.json() == {"detail": "The requested file was not found."}
+    assert_api_error(
+        response=response,
+        status_code=404,
+        code="file_not_found",
+        message="The requested file was not found.",
+    )
 
 
 def test_get_file_summary_returns_column_statistics(
@@ -320,9 +373,12 @@ def test_get_file_summary_returns_404_for_unknown_file(
 
     response = client.get(f"/api/files/{uuid4()}/summary")
 
-    assert response.status_code == 404
-
-    assert response.json() == {"detail": "The requested file was not found."}
+    assert_api_error(
+        response=response,
+        status_code=404,
+        code="file_not_found",
+        message="The requested file was not found.",
+    )
 
 
 def test_get_file_preview_returns_requested_rows(
@@ -377,6 +433,12 @@ def test_get_file_preview_rejects_invalid_row_count(
 
     assert response.status_code == 422
 
+    body = response.json()
+
+    assert body["error"]["code"] == "validation_error"
+    assert body["error"]["message"] == "Request validation failed."
+    assert body["error"]["details"][0]["field"] == "query.rows"
+
 
 def test_get_file_preview_returns_404_for_unknown_file(
     client_factory: ClientFactory,
@@ -385,9 +447,12 @@ def test_get_file_preview_returns_404_for_unknown_file(
 
     response = client.get(f"/api/files/{uuid4()}/preview?rows=2")
 
-    assert response.status_code == 404
-
-    assert response.json() == {"detail": "The requested file was not found."}
+    assert_api_error(
+        response=response,
+        status_code=404,
+        code="file_not_found",
+        message="The requested file was not found.",
+    )
 
 
 def test_get_column_details_returns_selected_column_statistics(
@@ -434,6 +499,59 @@ def test_get_column_details_returns_404_for_unknown_column(
 
     response = client.get(f"/api/files/{uploaded['fileId']}/columns/unknown")
 
-    assert response.status_code == 404
+    assert_api_error(
+        response=response,
+        status_code=404,
+        code="column_not_found",
+        message='The column "unknown" was not found.',
+    )
 
-    assert response.json() == {"detail": 'The column "unknown" was not found.'}
+
+def test_delete_file_removes_csv_and_metadata(
+    client_factory: ClientFactory,
+    tmp_path: Path,
+) -> None:
+    client = client_factory()
+
+    uploaded = upload_csv(
+        client,
+        b"product,amount\nCoffee,10\n",
+    )
+
+    file_id = uploaded["fileId"]
+    csv_path = tmp_path / f"{file_id}.csv"
+    metadata_path = tmp_path / f"{file_id}.json"
+
+    assert csv_path.exists()
+    assert metadata_path.exists()
+
+    response = client.delete(f"/api/files/{file_id}")
+
+    assert response.status_code == 204
+    assert response.content == b""
+    assert not csv_path.exists()
+    assert not metadata_path.exists()
+
+    get_response = client.get(f"/api/files/{file_id}")
+
+    assert_api_error(
+        response=get_response,
+        status_code=404,
+        code="file_not_found",
+        message="The requested file was not found.",
+    )
+
+
+def test_delete_file_returns_404_for_unknown_file(
+    client_factory: ClientFactory,
+) -> None:
+    client = client_factory()
+
+    response = client.delete(f"/api/files/{uuid4()}")
+
+    assert_api_error(
+        response=response,
+        status_code=404,
+        code="file_not_found",
+        message="The requested file was not found.",
+    )

@@ -12,7 +12,7 @@ def test_root_returns_application_information() -> None:
 
     assert response.json() == {
         "name": "CSV Inspector API",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "docs": "/docs",
     }
 

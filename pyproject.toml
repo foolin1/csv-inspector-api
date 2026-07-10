@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "csv-inspector-api"
-version = "0.5.0"
+version = "0.6.0"
 description = "FastAPI service for uploading and analyzing CSV files"
 readme = "README.md"
 requires-python = ">=3.12"

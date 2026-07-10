@@ -5,12 +5,13 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
-    HTTPException,
     Query,
+    Response,
     UploadFile,
     status,
 )
 
+from app.api.errors import ApiError
 from app.config import (
     MAX_FILE_SIZE_BYTES,
     MAX_PREVIEW_ROWS,
@@ -38,6 +39,7 @@ from app.services.csv_reader import (
 from app.services.file_storage import (
     FileStorageService,
     FileTooLargeError,
+    StoredFileDeletionError,
     StoredFileMetadataError,
     StoredFileNotFoundError,
     UnsupportedFileTypeError,
@@ -100,30 +102,40 @@ async def upload_file(
     try:
         metadata = await storage_service.save(file)
     except UnsupportedFileTypeError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=str(exc),
+            code="unsupported_file_type",
+            message=str(exc),
         ) from exc
     except FileTooLargeError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=str(exc),
+            code="file_too_large",
+            message=str(exc),
         ) from exc
-    except (
-        UnsupportedEncodingError,
-        UnsupportedDelimiterError,
-    ) as exc:
-        raise HTTPException(
+    except UnsupportedEncodingError as exc:
+        raise ApiError(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=str(exc),
+            code="unsupported_encoding",
+            message=str(exc),
         ) from exc
-    except (
-        EmptyCsvError,
-        InvalidCsvError,
-    ) as exc:
-        raise HTTPException(
+    except UnsupportedDelimiterError as exc:
+        raise ApiError(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            code="unsupported_delimiter",
+            message=str(exc),
+        ) from exc
+    except EmptyCsvError as exc:
+        raise ApiError(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(exc),
+            code="empty_csv",
+            message=str(exc),
+        ) from exc
+    except InvalidCsvError as exc:
+        raise ApiError(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            code="invalid_csv",
+            message=str(exc),
         ) from exc
 
     return FileUploadResponse.model_validate(metadata)
@@ -144,14 +156,16 @@ def get_file_information(
     try:
         metadata = storage_service.get_metadata(file_id)
     except StoredFileNotFoundError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            code="file_not_found",
+            message=str(exc),
         ) from exc
     except StoredFileMetadataError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            code="stored_metadata_invalid",
+            message=str(exc),
         ) from exc
 
     return FileInfoResponse.model_validate(metadata)
@@ -177,14 +191,16 @@ def get_file_summary(
         metadata = storage_service.get_metadata(file_id)
         file_path = storage_service.get_file_path(file_id)
     except StoredFileNotFoundError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            code="file_not_found",
+            message=str(exc),
         ) from exc
     except StoredFileMetadataError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            code="stored_metadata_invalid",
+            message=str(exc),
         ) from exc
 
     analysis = analyzer_service.analyze(
@@ -232,14 +248,16 @@ def get_file_preview(
         metadata = storage_service.get_metadata(file_id)
         file_path = storage_service.get_file_path(file_id)
     except StoredFileNotFoundError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            code="file_not_found",
+            message=str(exc),
         ) from exc
     except StoredFileMetadataError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            code="stored_metadata_invalid",
+            message=str(exc),
         ) from exc
 
     preview = analyzer_service.preview(
@@ -280,14 +298,16 @@ def get_column_details(
         metadata = storage_service.get_metadata(file_id)
         file_path = storage_service.get_file_path(file_id)
     except StoredFileNotFoundError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            code="file_not_found",
+            message=str(exc),
         ) from exc
     except StoredFileMetadataError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(exc),
+            code="stored_metadata_invalid",
+            message=str(exc),
         ) from exc
 
     try:
@@ -298,9 +318,10 @@ def get_column_details(
             column_name=column_name,
         )
     except ColumnNotFoundError as exc:
-        raise HTTPException(
+        raise ApiError(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc),
+            code="column_not_found",
+            message=str(exc),
         ) from exc
 
     return ColumnDetailsResponse(
@@ -308,3 +329,39 @@ def get_column_details(
         file_name=metadata.file_name,
         column=build_column_response(column),
     )
+
+
+@router.delete(
+    "/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an uploaded CSV file",
+)
+def delete_file(
+    file_id: UUID,
+    storage_service: Annotated[
+        FileStorageService,
+        Depends(get_file_storage_service),
+    ],
+) -> Response:
+    try:
+        storage_service.delete(file_id)
+    except StoredFileNotFoundError as exc:
+        raise ApiError(
+            status_code=status.HTTP_404_NOT_FOUND,
+            code="file_not_found",
+            message=str(exc),
+        ) from exc
+    except StoredFileMetadataError as exc:
+        raise ApiError(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="stored_metadata_invalid",
+            message=str(exc),
+        ) from exc
+    except StoredFileDeletionError as exc:
+        raise ApiError(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            code="file_deletion_failed",
+            message=str(exc),
+        ) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
